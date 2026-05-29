@@ -1,0 +1,13 @@
+.DS_Store
+/node_modules
+# สร้างจาก npm (postinstall / npm run build:firebase)
+/apps/web/vendor/firebase-compat.js
+# สร้างจาก npm run firebase:prepare:hosting ก่อน deploy
+/public
+# ตัวแปรลับ / คีย์ต่างๆ
+.env
+# คีย์ Firebase จริง (สร้างจาก .env ด้วย npm run config:gen)
+/apps/web/firebase-config.local.js
+# ค่าตั้งค่าฝั่ง browser ที่ generate จาก .env
+/apps/web/env-config.local.js
+/firebase/.firestore.rules.emu-backup

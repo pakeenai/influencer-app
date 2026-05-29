@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return request.auth.token.role;
+    }
+
+    function isSuperAdmin() {
+      return signedIn() && role() == 'super_admin';
+    }
+
+    function isDeptAdmin() {
+      return signedIn() && role() == 'department_admin';
+    }
+
+    function isCreator() {
+      return signedIn() && role() == 'creator';
+    }
+
+    function deptId() {
+      return request.auth.token.deptId;
+    }
+
+    function influencerId() {
+      return request.auth.token.influencerId;
+    }
+
+    match /influencers/{infId} {
+      allow read: if isSuperAdmin()
+        || (isDeptAdmin() && resource.data.department_id == deptId())
+        || (isCreator() && infId == influencerId());
+      allow create: if isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /departments/{deptDocId} {
+      allow read: if isSuperAdmin() || (isDeptAdmin() && deptDocId == deptId());
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /projects/{projId} {
+      allow read: if isSuperAdmin()
+        || (isDeptAdmin() && resource.data.department_id == deptId())
+        || (isCreator()
+            && 'assigned_influencer_ids' in resource.data
+            && influencerId() in resource.data.assigned_influencer_ids);
+      allow create: if isSuperAdmin()
+        || (isDeptAdmin() && request.resource.data.department_id == deptId());
+      allow update: if isSuperAdmin()
+        || (isDeptAdmin()
+            && resource.data.department_id == deptId()
+            && request.resource.data.department_id == deptId());
+      allow delete: if isSuperAdmin()
+        || (isDeptAdmin() && resource.data.department_id == deptId());
+    }
+
+    match /posts/{postId} {
+      allow read: if isSuperAdmin()
+        || (isDeptAdmin() && resource.data.department_id == deptId())
+        || (isCreator() && resource.data.influencer_id == influencerId());
+      allow create: if isSuperAdmin()
+        || (isDeptAdmin() && request.resource.data.department_id == deptId())
+        || (isCreator() && request.resource.data.influencer_id == influencerId());
+      allow update, delete: if isSuperAdmin()
+        || (isDeptAdmin() && resource.data.department_id == deptId())
+        || (isCreator() && resource.data.influencer_id == influencerId());
+    }
+
+    match /influencer_pins/{infId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /department_credentials/{deptDocId} {
+      allow read: if isSuperAdmin() || (isDeptAdmin() && deptDocId == deptId());
+      allow write: if isSuperAdmin();
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /registration_campaigns/{campId} {
+      allow read: if resource.data.active == true
+        || isSuperAdmin()
+        || isCreator();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /registration_submissions/{subId} {
+      allow read: if isSuperAdmin()
+        || (isCreator() && resource.data.influencer_id == influencerId());
+      allow create: if isCreator()
+        && request.resource.data.influencer_id == influencerId()
+        && request.resource.data.status == 'pending';
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+  }
+}

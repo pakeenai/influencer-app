@@ -1,0 +1,42 @@
+Firebase Backend — โปรเจกต์ xstream-solution (แยกจากต้นฉบับ / ไม่ใช้ GAS)
+====================================================================
+
+แอปใช้ Firebase เท่านั้น: Firestore + Cloud Functions (Auth custom token)
+ไม่มี Google Apps Script — โฟลเดอร์ gas/ เป็น legacy ไม่ได้เชื่อมกับแอปแล้ว
+
+รันบนเครื่อง (แนะนำ)
+--------------------
+  npm install
+  npm run dev
+
+  → Firestore emulator 127.0.0.1:8080 + เว็บ http://127.0.0.1:8091/
+  → ล็อกอิน Admin ทดสอบ: admin / admin123 (ใช้ได้กับ emulator + rules แบบ dev)
+
+แยกสองเทอร์มินัล:
+  Terminal 1: npm run firebase:emu
+  Terminal 2: npm run serve
+
+Production (โปรเจกต์ Firebase ใหม่ของคุณ)
+----------------------------------------
+1) สร้างโปรเจกต์ใน https://console.firebase.google.com
+   - เปิด Firestore, Authentication, Cloud Functions (region us-central1)
+
+2) ตั้งค่าเว็บ
+   cp apps/web/firebase-config.local.js.example apps/web/firebase-config.local.js
+   # แก้ค่า apiKey, projectId ฯลฯ จาก Console
+
+3) ผูก CLI
+   npm run firebase:login
+   # แก้ .firebaserc ถ้า project id ไม่ใช่ xstream-solution
+
+4) Deploy
+   npm run firebase:deploy
+
+5) Super Admin ครั้งแรก — สร้างใน Firestore:
+   collection admins/{username}  →  { password_hash: "<bcrypt>" }
+   (ใช้ Cloud Function loginSuperAdmin หลัง deploy functions)
+
+localhost + production config:
+  http://127.0.0.1:8091/?prod=1
+
+Hosting site id ใน firebase.json ต้องตรงกับที่สร้างใน Console (หรือใช้ default *.web.app)

@@ -1,0 +1,36 @@
+{
+  "name": "my-realtime-web",
+  "private": true,
+  "scripts": {
+    "build:firebase": "esbuild scripts/firebase-sdk-entry.js --bundle --format=iife --platform=browser --legal-comments=none --outfile=apps/web/vendor/firebase-compat.js",
+    "postinstall": "npm run build:firebase",
+    "config:gen": "node scripts/gen-config-from-env.mjs",
+    "db:server": "node scripts/db-server.mjs",
+    "firebase:emu": "node scripts/firebase-emu.mjs",
+    "serve": "python3 scripts/serve_apps_web.py",
+    "start": "node scripts/db-server.mjs",
+    "start:static": "bash scripts/start-web.sh",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "npm run serve",
+    "firebase:deploy:firestore": "cp firebase/firestore.rules.secure firebase/firestore.rules && FIREBASE_TOOLS_DISABLE_UPDATE_CHECK=1 XDG_CONFIG_HOME=.firebase-config npx firebase-tools deploy --only firestore",
+    "firebase:deploy:functions": "FIREBASE_TOOLS_DISABLE_UPDATE_CHECK=1 XDG_CONFIG_HOME=.firebase-config npx firebase-tools deploy --only functions",
+    "firebase:setup-app-engine": "bash scripts/setup-app-engine.sh influencer-managements us-central",
+    "firebase:post-blaze": "bash scripts/post-blaze-setup.sh",
+    "firebase:seed-admin": "node scripts/seed-super-admin.mjs",
+    "firebase:prepare:hosting": "node scripts/prepare-hosting.mjs",
+    "firebase:deploy:hosting": "FIREBASE_TOOLS_DISABLE_UPDATE_CHECK=1 XDG_CONFIG_HOME=.firebase-config npx firebase-tools deploy --only hosting",
+    "firebase:deploy": "FIREBASE_TOOLS_DISABLE_UPDATE_CHECK=1 XDG_CONFIG_HOME=.firebase-config npx firebase-tools deploy",
+    "firebase:login": "FIREBASE_TOOLS_DISABLE_UPDATE_CHECK=1 XDG_CONFIG_HOME=.firebase-config npx firebase-tools login --reauth",
+    "test:console": "node tests/console-check.mjs",
+    "test:flow": "node tests/flow-smoke.mjs"
+  },
+  "dependencies": {
+    "firebase": "^11.6.0",
+    "mysql2": "^3.22.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "firebase-tools": "^15.16.0",
+    "playwright": "^1.49.0"
+  }
+}
