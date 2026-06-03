@@ -50,7 +50,7 @@ const PK = {
 };
 const COLS = {
   admins: ['username', 'password', 'role', 'created_at'],
-  influencers: ['id', 'name', 'phone', 'line', 'email', 'national_id', 'url_tiktok', 'url_shopee', 'url_facebook', 'url_instagram', 'url_lemon9', 'department_id', 'platforms', 'notes', 'created_at', 'updated_at'],
+  influencers: ['id', 'name', 'phone', 'line', 'email', 'national_id', 'rating', 'avatar_url', 'url_tiktok', 'url_shopee', 'url_facebook', 'url_instagram', 'url_lemon9', 'department_id', 'platforms', 'notes', 'created_at', 'updated_at'],
   influencer_pins: ['influencer_id', 'pin', 'created_at', 'updated_at'],
   departments: ['id', 'name', 'head', 'description', 'member_ids', 'created_at', 'updated_at'],
   department_credentials: ['department_id', 'username', 'password', 'created_at', 'updated_at'],
@@ -65,7 +65,7 @@ const JSON_COLS = {
 };
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS ${PREFIX}admins (username VARCHAR(64) PRIMARY KEY, password VARCHAR(255), role VARCHAR(32), created_at VARCHAR(40)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-CREATE TABLE IF NOT EXISTS ${PREFIX}influencers (id VARCHAR(64) PRIMARY KEY, name VARCHAR(255), phone VARCHAR(64), line VARCHAR(128), email VARCHAR(255), national_id VARCHAR(32), url_tiktok VARCHAR(512), url_shopee VARCHAR(512), url_facebook VARCHAR(512), url_instagram VARCHAR(512), url_lemon9 VARCHAR(512), department_id VARCHAR(64), platforms JSON, notes TEXT, created_at VARCHAR(40), updated_at VARCHAR(40)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ${PREFIX}influencers (id VARCHAR(64) PRIMARY KEY, name VARCHAR(255), phone VARCHAR(64), line VARCHAR(128), email VARCHAR(255), national_id VARCHAR(32), rating INT DEFAULT 0, avatar_url LONGTEXT, url_tiktok VARCHAR(512), url_shopee VARCHAR(512), url_facebook VARCHAR(512), url_instagram VARCHAR(512), url_lemon9 VARCHAR(512), department_id VARCHAR(64), platforms JSON, notes TEXT, created_at VARCHAR(40), updated_at VARCHAR(40)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS ${PREFIX}influencer_pins (influencer_id VARCHAR(64) PRIMARY KEY, pin VARCHAR(16), created_at VARCHAR(40), updated_at VARCHAR(40)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS ${PREFIX}departments (id VARCHAR(64) PRIMARY KEY, name VARCHAR(255), head VARCHAR(255), description TEXT, member_ids JSON, created_at VARCHAR(40), updated_at VARCHAR(40)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS ${PREFIX}department_credentials (department_id VARCHAR(64) PRIMARY KEY, username VARCHAR(64), password VARCHAR(255), created_at VARCHAR(40), updated_at VARCHAR(40)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -128,10 +128,23 @@ async function delById(table, id) {
   await pool.query(`DELETE FROM \`${tbl(table)}\` WHERE \`${PK[table]}\` = ?`, [id]);
 }
 
+async function ensureColumn(table, col, definition) {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [tbl(table), col]
+  );
+  if (!rows[0] || !Number(rows[0].c)) {
+    await pool.query(`ALTER TABLE \`${tbl(table)}\` ADD COLUMN \`${col}\` ${definition}`);
+    console.log(`[db] migrate: added ${tbl(table)}.${col}`);
+  }
+}
 async function ensureSchema() {
   for (const stmt of SCHEMA_SQL.split(';').map((s) => s.trim()).filter(Boolean)) {
     await pool.query(stmt);
   }
+  // migrations: เพิ่มคอลัมน์ที่อาจยังไม่มีใน DB เดิม
+  await ensureColumn('influencers', 'rating', "INT DEFAULT 0 AFTER `national_id`");
+  await ensureColumn('influencers', 'avatar_url', "LONGTEXT AFTER `rating`");
   // seed admin จาก .env (ไม่เขียนทับถ้ามีอยู่แล้ว)
   const u = ENV.ADMIN_USERNAME || 'admin';
   const existing = await getById('admins', u);
@@ -246,7 +259,7 @@ async function dbAction(ctx, action, data = {}) {
   switch (action) {
     case 'createInfluencer': {
       const id = d.id || ('inf_' + Date.now());
-      const row = { id, name: d.name || '', phone: d.phone || '', line: d.line || '', email: d.email || '', national_id: d.national_id || '', url_tiktok: d.url_tiktok || '', url_shopee: d.url_shopee || '', url_facebook: d.url_facebook || '', url_instagram: d.url_instagram || '', url_lemon9: d.url_lemon9 || '', department_id: isDept ? dept : (d.department_id || ''), platforms: Array.isArray(d.platforms) ? d.platforms : [], notes: d.notes || '', created_at: d.created_at || now, updated_at: d.updated_at || '' };
+      const row = { id, name: d.name || '', phone: d.phone || '', line: d.line || '', email: d.email || '', national_id: d.national_id || '', rating: Math.max(0, Math.min(5, parseInt(d.rating, 10) || 0)), avatar_url: d.avatar_url || '', url_tiktok: d.url_tiktok || '', url_shopee: d.url_shopee || '', url_facebook: d.url_facebook || '', url_instagram: d.url_instagram || '', url_lemon9: d.url_lemon9 || '', department_id: isDept ? dept : (d.department_id || ''), platforms: Array.isArray(d.platforms) ? d.platforms : [], notes: d.notes || '', created_at: d.created_at || now, updated_at: d.updated_at || '' };
       await upsert('influencers', row); return { success: true, data: row };
     }
     case 'updateInfluencer': {
@@ -254,6 +267,7 @@ async function dbAction(ctx, action, data = {}) {
       const prev = await getById('influencers', d.id);
       if (!prev) return { success: false, error: 'Not found' };
       const merged = { ...prev, ...d, department_id: isDept ? dept : (d.department_id ?? prev.department_id ?? ''), updated_at: now };
+      if (d.rating !== undefined) merged.rating = Math.max(0, Math.min(5, parseInt(d.rating, 10) || 0));
       await upsert('influencers', merged); return { success: true, data: merged };
     }
     case 'deleteInfluencer': {

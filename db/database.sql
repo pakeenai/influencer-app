@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS xstream2_admins (
 
 CREATE TABLE IF NOT EXISTS xstream2_influencers (
   id VARCHAR(64) PRIMARY KEY, name VARCHAR(255), phone VARCHAR(64), line VARCHAR(128), email VARCHAR(255),
-  national_id VARCHAR(32), url_tiktok VARCHAR(512), url_shopee VARCHAR(512), url_facebook VARCHAR(512),
+  national_id VARCHAR(32), rating INT DEFAULT 0, avatar_url LONGTEXT, url_tiktok VARCHAR(512), url_shopee VARCHAR(512), url_facebook VARCHAR(512),
   url_instagram VARCHAR(512), url_lemon9 VARCHAR(512), department_id VARCHAR(64), platforms JSON, notes TEXT,
   created_at VARCHAR(40), updated_at VARCHAR(40)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

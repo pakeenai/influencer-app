@@ -2259,6 +2259,7 @@ function exportCurrentPageToExcel() {
       name: i.name,
       email: i.email || '',
       national_id: i.national_id || '',
+      rating: Number(i.rating) || 0,
       phone: i.phone || '',
       line: i.line || '',
       url_tiktok: i.url_tiktok || '',
@@ -3513,7 +3514,7 @@ function renderInfluencersPage() {
         <button type="button" onclick="openInfluencerUploadModal()" class="btn-outline flex items-center gap-2 text-sm">
           <i data-lucide="upload" style="width:16px;height:16px;"></i> อัปโหลด Excel
         </button>
-        <button type="button" onclick="STATE.editItem=null;STATE.modalOpen='add-influencer';render();" class="btn-gold flex items-center gap-2 text-sm">
+        <button type="button" onclick="STATE.editItem=null;STATE._infAvatarData=null;STATE.modalOpen='add-influencer';render();" class="btn-gold flex items-center gap-2 text-sm">
           <i data-lucide="plus" style="width:16px;height:16px;"></i> เพิ่ม Influencer
         </button>
       </div>
@@ -3564,7 +3565,10 @@ function renderInfluencersPage() {
               <td>
                 <div class="flex items-center gap-2">
                   <div class="w-9 h-9 shrink-0 bg-dark-950 text-white rounded-lg flex items-center justify-center text-sm font-bold">${initial}</div>
-                  <span class="font-medium text-dark-950">${esc(inf.name || '-')}</span>
+                  <div class="flex flex-col">
+                    <span class="font-medium text-dark-950">${esc(inf.name || '-')}</span>
+                    ${(Number(inf.rating) || 0) ? `<span class="text-xs leading-none" style="color:#f59e0b" title="${Number(inf.rating)} ดาว">${'★'.repeat(Number(inf.rating))}<span style="color:#d1d5db">${'★'.repeat(5 - Number(inf.rating))}</span></span>` : ''}
+                  </div>
                 </div>
               </td>
               <td class="text-dark-600 text-sm">${em ? `<a href="mailto:${encodeURIComponent(em)}" class="text-blue-600 hover:underline">${esc(em)}</a>` : '<span class="text-dark-400">—</span>'}</td>
@@ -3593,7 +3597,7 @@ function renderInfluencersPage() {
       <p class="text-dark-500">ยังไม่มี Influencer ในระบบ</p>
       <div class="flex flex-wrap gap-2 justify-center mt-4">
         <button type="button" onclick="openInfluencerUploadModal()" class="btn-outline">อัปโหลด Excel</button>
-        <button type="button" onclick="STATE.editItem=null;STATE.modalOpen='add-influencer';render();" class="btn-gold">เพิ่ม Influencer</button>
+        <button type="button" onclick="STATE.editItem=null;STATE._infAvatarData=null;STATE.modalOpen='add-influencer';render();" class="btn-gold">เพิ่ม Influencer</button>
       </div>
     </div>
     ` : ''}
@@ -4392,8 +4396,24 @@ function renderModal() {
     title = e ? 'แก้ไข Influencer' : 'เพิ่ม Influencer';
     const isDeptHead = STATE.adminRole === 'department_admin' && !!STATE.adminDepartmentId;
     const deptName = isDeptHead ? (STATE.departments.find(d => d.id === STATE.adminDepartmentId)?.name || '') : '';
+    const avatarPreview = STATE._infAvatarData || e?.avatar_url || '';
     content = `
     <form id="influencerForm" class="space-y-3">
+      <div>
+        <label class="text-xs font-medium text-dark-500 mb-1 block">รูปโปรไฟล์</label>
+        <div class="flex items-center gap-4">
+          <img id="mInfAvatarPreview" ${avatarPreview ? `src="${avatarPreview}"` : ''} alt="" class="w-24 h-24 rounded-full object-cover border border-dark-200 bg-dark-50 shrink-0 ${avatarPreview ? '' : 'hidden'}">
+          <div id="mInfAvatarPlaceholder" class="w-24 h-24 rounded-full border border-dashed border-dark-300 bg-dark-50 flex items-center justify-center text-dark-400 shrink-0 ${avatarPreview ? 'hidden' : ''}">
+            <i data-lucide="user" style="width:32px;height:32px;"></i>
+          </div>
+          <div id="mInfAvatarDrop" class="flex-1 border-2 border-dashed border-dark-200 rounded-lg p-4 text-center cursor-pointer hover:border-gold-400 hover:bg-gold-50 transition-colors">
+            <p class="text-xs text-dark-600">ลากรูปมาวางที่นี่ หรือ <span class="text-gold-600 font-semibold">คลิกเพื่อเลือกรูป</span></p>
+            <p class="text-[10px] text-dark-400 mt-1">รองรับ JPG / PNG</p>
+            <button type="button" id="mInfAvatarClear" class="text-[11px] text-red-500 hover:underline mt-2 ${avatarPreview ? '' : 'hidden'}">ลบรูป</button>
+          </div>
+        </div>
+        <input type="file" id="mInfAvatar" accept="image/*" class="hidden">
+      </div>
       <div><label class="text-xs font-medium text-dark-500 mb-1 block">ชื่อ</label><input class="input-field" id="mInfName" value="${e?.name||''}" placeholder="ชื่อ Influencer" required></div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div><label class="text-xs font-medium text-dark-500 mb-1 block">E-mail</label><input type="email" class="input-field" id="mInfEmail" value="${e?.email||''}" placeholder="name@example.com" autocomplete="email"></div>
@@ -4401,6 +4421,14 @@ function renderModal() {
       </div>
       <div><label class="text-xs font-medium text-dark-500 mb-1 block">เบอร์โทร</label><input class="input-field" id="mInfPhone" value="${e?.phone||''}" placeholder="เช่น 086-123-4567"></div>
       <div><label class="text-xs font-medium text-dark-500 mb-1 block">Line</label><input class="input-field" id="mInfLine" value="${e?.line||''}" placeholder="ชื่อ Line ID"></div>
+      <div>
+        <label class="text-xs font-medium text-dark-500 mb-1 block">เรตติ้ง <span class="font-normal text-dark-400">(1-5 ดาว — กดดาวเดิมซ้ำเพื่อล้าง)</span></label>
+        <div id="mInfRatingStars" class="flex items-center gap-1">
+          ${[1,2,3,4,5].map((n) => `<button type="button" data-val="${n}" onclick="imsSetInfRating(${n})" class="ims-star text-2xl leading-none focus:outline-none transition-colors" style="color:${(Number(e?.rating)||0) >= n ? '#f59e0b' : '#d1d5db'}">★</button>`).join('')}
+          <span id="mInfRatingLabel" class="text-xs text-dark-400 ml-2">${(Number(e?.rating)||0) ? (Number(e?.rating) + ' ดาว') : 'ยังไม่ให้คะแนน'}</span>
+        </div>
+        <input type="hidden" id="mInfRating" value="${Number(e?.rating)||0}">
+      </div>
       <div class="pt-1 border-t border-dark-100">
         <p class="text-xs font-semibold text-dark-700 mb-2">ลิงก์โซเชียล / ร้าน <span class="font-normal text-dark-400">(ไม่บังคับ — กรอกเฉพาะช่องที่มี)</span></p>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -4720,6 +4748,7 @@ function closeModal() {
   STATE.deleteTarget = null;
   STATE._influencerImportPreview = null;
   STATE._regCampaignImageData = null;
+  STATE._infAvatarData = null;
   render();
 }
 
@@ -4802,12 +4831,15 @@ function editInfluencer(influencerId) {
     line: inf.line || '',
     email: inf.email || '',
     national_id: inf.national_id || '',
+    rating: inf.rating || 0,
+    avatar_url: inf.avatar_url || '',
     url_tiktok: inf.url_tiktok || '',
     url_shopee: inf.url_shopee || '',
     url_facebook: inf.url_facebook || '',
     url_instagram: inf.url_instagram || '',
     url_lemon9: inf.url_lemon9 || ''
   };
+  STATE._infAvatarData = null;
   STATE.modalOpen = 'add-influencer';
   render();
 }
@@ -5012,6 +5044,19 @@ function imsBindDelegatedClicks_() {
   });
 }
 
+window.imsSetInfRating = function (n) {
+  const input = document.getElementById('mInfRating');
+  if (!input) return;
+  const cur = Number(input.value) || 0;
+  const val = (cur === n) ? 0 : n; // กดดาวเดิมซ้ำเพื่อล้างคะแนน
+  input.value = val;
+  document.querySelectorAll('#mInfRatingStars .ims-star').forEach((b) => {
+    b.style.color = (Number(b.dataset.val) <= val) ? '#f59e0b' : '#d1d5db';
+  });
+  const lbl = document.getElementById('mInfRatingLabel');
+  if (lbl) lbl.textContent = val ? (val + ' ดาว') : 'ยังไม่ให้คะแนน';
+};
+
 function bindEvents() {
   imsBindDelegatedClicks_();
 
@@ -5179,6 +5224,59 @@ function bindEvents() {
     });
   }
 
+  const infAvatarInput = document.getElementById('mInfAvatar');
+  const infAvatarDrop = document.getElementById('mInfAvatarDrop');
+  if (infAvatarInput && infAvatarDrop && infAvatarDrop.dataset.imsBound !== '1') {
+    infAvatarDrop.dataset.imsBound = '1';
+    const applyInfAvatar = (dataUrl) => {
+      STATE._infAvatarData = dataUrl || '';
+      const prev = document.getElementById('mInfAvatarPreview');
+      const ph = document.getElementById('mInfAvatarPlaceholder');
+      const clr = document.getElementById('mInfAvatarClear');
+      if (dataUrl) {
+        if (prev) { prev.src = dataUrl; prev.classList.remove('hidden'); }
+        if (ph) ph.classList.add('hidden');
+        if (clr) clr.classList.remove('hidden');
+      } else {
+        if (prev) { prev.removeAttribute('src'); prev.classList.add('hidden'); }
+        if (ph) ph.classList.remove('hidden');
+        if (clr) clr.classList.add('hidden');
+      }
+    };
+    const loadInfAvatarFile = async (file) => {
+      if (!file) return;
+      try {
+        const dataUrl = await imsReadImageFileAsDataUrl_(file, 512, 512, 0.85);
+        applyInfAvatar(dataUrl);
+      } catch (err) {
+        Swal.fire({ icon: 'error', title: 'อัปโหลดรูปไม่สำเร็จ', text: err?.message || String(err) });
+      }
+    };
+    infAvatarDrop.addEventListener('click', () => infAvatarInput.click());
+    infAvatarInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      loadInfAvatarFile(file);
+      e.target.value = '';
+    });
+    ['dragenter', 'dragover'].forEach((ev) => infAvatarDrop.addEventListener(ev, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      infAvatarDrop.classList.add('border-gold-400', 'bg-gold-50');
+    }));
+    ['dragleave', 'drop'].forEach((ev) => infAvatarDrop.addEventListener(ev, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      infAvatarDrop.classList.remove('border-gold-400', 'bg-gold-50');
+    }));
+    infAvatarDrop.addEventListener('drop', (e) => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      loadInfAvatarFile(file);
+    });
+    const infAvatarClear = document.getElementById('mInfAvatarClear');
+    if (infAvatarClear) infAvatarClear.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      applyInfAvatar('');
+    });
+  }
+
   const infForm = document.getElementById('influencerForm');
   if (infForm && infForm.dataset.imsBound !== '1') {
     infForm.dataset.imsBound = '1';
@@ -5189,7 +5287,8 @@ function bindEvents() {
       const national_id = document.getElementById('mInfNationalId').value;
       const phone = document.getElementById('mInfPhone').value;
       const line = document.getElementById('mInfLine').value;
-      
+      const rating = Math.max(0, Math.min(5, parseInt(document.getElementById('mInfRating')?.value, 10) || 0));
+
       if (!name.trim()) {
         Swal.fire({ icon: 'warning', title: 'กรุณากรอกชื่อ' });
         return;
@@ -5206,6 +5305,8 @@ function bindEvents() {
         line,
         email: String(email).trim(),
         national_id: nid,
+        rating,
+        avatar_url: (STATE._infAvatarData !== null && STATE._infAvatarData !== undefined) ? STATE._infAvatarData : (STATE.editItem?.avatar_url || ''),
         url_tiktok: imsSafeHttpUrl_(document.getElementById('mInfUrlTiktok').value) || '',
         url_shopee: imsSafeHttpUrl_(document.getElementById('mInfUrlShopee').value) || '',
         url_facebook: imsSafeHttpUrl_(document.getElementById('mInfUrlFacebook').value) || '',
