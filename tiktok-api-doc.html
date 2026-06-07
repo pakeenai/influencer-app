@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TikTok for Developers — API Reference</title>
+<style>
+  @page { size: A4; margin: 18mm 15mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a1a; line-height: 1.55; font-size: 12px; margin: 0;
+  }
+  .cover {
+    text-align: center; padding: 80px 20px 60px; page-break-after: always;
+    background: linear-gradient(135deg, #000 0%, #25F4EE 55%, #FE2C55 100%);
+    color: #fff; border-radius: 0;
+    height: 247mm; display: flex; flex-direction: column; justify-content: center;
+  }
+  .cover h1 { font-size: 38px; margin: 0 0 10px; letter-spacing: -0.5px; }
+  .cover h2 { font-size: 18px; font-weight: 400; opacity: .92; margin: 0 0 40px; }
+  .cover .meta { font-size: 12px; opacity: .85; margin-top: 30px; }
+  .cover .badge {
+    display: inline-block; background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.35); padding: 6px 16px;
+    border-radius: 20px; font-size: 12px; margin: 4px;
+  }
+  h2.section {
+    font-size: 20px; color: #000; border-bottom: 3px solid #FE2C55;
+    padding-bottom: 6px; margin: 34px 0 14px; page-break-after: avoid;
+  }
+  h3.api {
+    font-size: 15px; color: #000; margin: 24px 0 4px;
+    page-break-after: avoid;
+  }
+  .pill {
+    display: inline-block; font-size: 10px; font-weight: 700; color: #fff;
+    padding: 2px 8px; border-radius: 4px; vertical-align: middle; margin-left: 6px;
+  }
+  .get { background: #2e7d32; }
+  .post { background: #1565c0; }
+  .auth { background: #6a1b9a; }
+  .meaning {
+    background: #f5fbfc; border-left: 4px solid #25F4EE;
+    padding: 8px 12px; margin: 8px 0; border-radius: 4px;
+  }
+  .meaning b { color: #000; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 11px; }
+  th, td { border: 1px solid #ddd; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #111; color: #fff; }
+  tr:nth-child(even) td { background: #fafafa; }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: #eef0f2; padding: 1px 5px; border-radius: 3px; font-size: 11px;
+  }
+  pre {
+    background: #0d1117; color: #e6edf3; padding: 12px 14px; border-radius: 8px;
+    overflow-x: auto; font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+    page-break-inside: avoid;
+  }
+  pre .c { color: #7ee787; }    /* command */
+  pre .k { color: #79c0ff; }    /* key */
+  pre .s { color: #a5d6ff; }    /* string */
+  pre .cm { color: #8b949e; }   /* comment */
+  .note {
+    background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px;
+    padding: 10px 14px; margin: 12px 0; font-size: 11px;
+  }
+  .warn {
+    background: #fdecea; border: 1px solid #f5c6cb; border-radius: 6px;
+    padding: 10px 14px; margin: 12px 0; font-size: 11px;
+  }
+  .endpoint {
+    font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+    background: #f0f3f6; border: 1px solid #d0d7de; border-radius: 6px;
+    padding: 6px 10px; margin: 6px 0; word-break: break-all;
+  }
+  ul { margin: 6px 0 6px 18px; padding: 0; }
+  li { margin: 3px 0; }
+  .toc li { margin: 6px 0; }
+  .toc a { color: #1a1a1a; text-decoration: none; }
+  .flow {
+    background: #f5fbfc; border: 1px solid #b2ebf2; border-radius: 8px;
+    padding: 12px 16px; margin: 12px 0;
+  }
+  .flow ol { margin: 0 0 0 18px; }
+  footer { text-align:center; color:#888; font-size:10px; margin-top:30px; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>TikTok for Developers</h1>
+  <h2>Open API Reference &amp; cURL Guide</h2>
+  <div>
+    <span class="badge">Login Kit</span>
+    <span class="badge">Display API</span>
+    <span class="badge">Research API</span>
+    <span class="badge">OAuth 2.0</span>
+  </div>
+  <div class="meta">
+    Prepared for the Influencer App project<br>
+    Source: developers.tiktok.com/doc &nbsp;•&nbsp; Generated 2026-06-07
+  </div>
+</div>
+
+<!-- TOC -->
+<h2 class="section">Contents</h2>
+<ul class="toc">
+  <li><b>1. Overview</b> — what these APIs are &amp; the login requirement</li>
+  <li><b>2. Authentication Flow</b> — Login Kit + OAuth</li>
+  <li><b>3. OAuth APIs</b> — Authorization, Token Exchange, Refresh, Revoke</li>
+  <li><b>4. Display API</b> — User Info, Video List, Video Query</li>
+  <li><b>5. Research API</b> — Public user/video lookup (research-only)</li>
+  <li><b>6. What is NOT available</b> — Live stream &amp; limits</li>
+  <li><b>7. Summary table of all APIs</b></li>
+</ul>
+
+<!-- 1. OVERVIEW -->
+<h2 class="section">1. Overview</h2>
+<p>TikTok's open platform is a set of REST APIs. Almost everything is built around
+<b>OAuth 2.0</b>: a TikTok user must <b>log in to your app and grant permission (scopes)</b>
+before you can read their data. You then call the APIs with that user's
+<code>access_token</code>.</p>
+<div class="note">
+<b>Key rule:</b> To pull a user's data (profile, followers, video engagement),
+that user <b>must log in</b> to your system and authorize the requested scopes.
+You cannot pull a random influencer's private stats without their login.
+The only no-login option is the <b>Research API</b>, which is restricted to
+approved non-profit / academic research.
+</div>
+
+<!-- 2. AUTH FLOW -->
+<h2 class="section">2. Authentication Flow (Login Kit)</h2>
+<div class="flow">
+<ol>
+  <li><b>Authorize</b> — Redirect the user to TikTok's authorization page. They log in &amp; tap <b>Allow</b>.</li>
+  <li><b>Get code</b> — TikTok redirects back to your <code>redirect_uri</code> with a <code>code</code>.</li>
+  <li><b>Exchange token</b> — Your server swaps the <code>code</code> for an <code>access_token</code> + <code>refresh_token</code>.</li>
+  <li><b>Call APIs</b> — Use <code>Authorization: Bearer {access_token}</code> to call Display API.</li>
+  <li><b>Refresh</b> — When the token expires, use the <code>refresh_token</code> to get a new one.</li>
+</ol>
+</div>
+
+<!-- 3. OAUTH APIS -->
+<h2 class="section">3. OAuth APIs</h2>
+
+<h3 class="api">3.1 Authorization Request <span class="pill auth">REDIRECT</span></h3>
+<div class="meaning"><b>Meaning:</b> Sends the user to TikTok to log in and approve your app.
+This is the "Login with TikTok" button. Returns a one-time <code>code</code> to your redirect URI.</div>
+<div class="endpoint">GET https://www.tiktok.com/v2/auth/authorize/</div>
+<pre><span class="cm"># Build this URL and open it in the user's browser</span>
+https://www.tiktok.com/v2/auth/authorize/
+  ?client_key=<span class="s">CLIENT_KEY</span>
+  &amp;scope=<span class="s">user.info.basic,user.info.profile,user.info.stats,video.list</span>
+  &amp;response_type=<span class="s">code</span>
+  &amp;redirect_uri=<span class="s">https://yourapp.com/callback</span>
+  &amp;state=<span class="s">random_csrf_string</span></pre>
+
+<h3 class="api">3.2 Exchange Code for Access Token <span class="pill post">POST</span></h3>
+<div class="meaning"><b>Meaning:</b> Your backend trades the one-time <code>code</code> for an
+<code>access_token</code> (used to call APIs) and a <code>refresh_token</code> (used to renew it).</div>
+<div class="endpoint">POST https://open.tiktokapis.com/v2/oauth/token/</div>
+<pre><span class="c">curl</span> --location --request POST <span class="s">'https://open.tiktokapis.com/v2/oauth/token/'</span> \
+  --header <span class="s">'Content-Type: application/x-www-form-urlencoded'</span> \
+  --data-urlencode <span class="s">'client_key=CLIENT_KEY'</span> \
+  --data-urlencode <span class="s">'client_secret=CLIENT_SECRET'</span> \
+  --data-urlencode <span class="s">'code=AUTH_CODE_FROM_REDIRECT'</span> \
+  --data-urlencode <span class="s">'grant_type=authorization_code'</span> \
+  --data-urlencode <span class="s">'redirect_uri=https://yourapp.com/callback'</span></pre>
+<p><b>Returns:</b> <code>access_token</code>, <code>refresh_token</code>, <code>open_id</code>,
+<code>expires_in</code>, <code>refresh_expires_in</code>, <code>scope</code>, <code>token_type</code>.</p>
+
+<h3 class="api">3.3 Refresh Access Token <span class="pill post">POST</span></h3>
+<div class="meaning"><b>Meaning:</b> Access tokens expire (~24h). Use the refresh token to get a
+new access token without making the user log in again.</div>
+<div class="endpoint">POST https://open.tiktokapis.com/v2/oauth/token/</div>
+<pre><span class="c">curl</span> --location --request POST <span class="s">'https://open.tiktokapis.com/v2/oauth/token/'</span> \
+  --header <span class="s">'Content-Type: application/x-www-form-urlencoded'</span> \
+  --data-urlencode <span class="s">'client_key=CLIENT_KEY'</span> \
+  --data-urlencode <span class="s">'client_secret=CLIENT_SECRET'</span> \
+  --data-urlencode <span class="s">'grant_type=refresh_token'</span> \
+  --data-urlencode <span class="s">'refresh_token=REFRESH_TOKEN'</span></pre>
+
+<h3 class="api">3.4 Revoke Access <span class="pill post">POST</span></h3>
+<div class="meaning"><b>Meaning:</b> Disconnects the user / invalidates the token (e.g. when a user
+unlinks their TikTok account from your app).</div>
+<div class="endpoint">POST https://open.tiktokapis.com/v2/oauth/revoke/</div>
+<pre><span class="c">curl</span> --location --request POST <span class="s">'https://open.tiktokapis.com/v2/oauth/revoke/'</span> \
+  --header <span class="s">'Content-Type: application/x-www-form-urlencoded'</span> \
+  --data-urlencode <span class="s">'client_key=CLIENT_KEY'</span> \
+  --data-urlencode <span class="s">'client_secret=CLIENT_SECRET'</span> \
+  --data-urlencode <span class="s">'token=ACCESS_TOKEN'</span></pre>
+
+<!-- 4. DISPLAY API -->
+<h2 class="section">4. Display API (for your logged-in users)</h2>
+<p>Works only for users who logged in to your app and granted the scope. This is the
+<b>main API for an influencer app</b>.</p>
+
+<h3 class="api">4.1 Get User Info <span class="pill get">GET</span></h3>
+<div class="meaning"><b>Meaning:</b> Returns the logged-in user's profile — name, avatar, bio,
+and (with stats scopes) follower / following / likes / video counts.</div>
+<div class="endpoint">GET https://open.tiktokapis.com/v2/user/info/?fields=...</div>
+<pre><span class="c">curl</span> --location <span class="s">'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,bio_description,profile_deep_link,is_verified,follower_count,following_count,likes_count,video_count'</span> \
+  --header <span class="s">'Authorization: Bearer ACCESS_TOKEN'</span></pre>
+<table>
+<tr><th>Field</th><th>Meaning</th><th>Scope required</th></tr>
+<tr><td>open_id / union_id</td><td>Unique user IDs in your app</td><td>user.info.basic</td></tr>
+<tr><td>display_name</td><td>Public nickname</td><td>user.info.basic</td></tr>
+<tr><td>avatar_url</td><td>Profile picture URL</td><td>user.info.basic</td></tr>
+<tr><td>bio_description</td><td>Profile bio text</td><td>user.info.profile</td></tr>
+<tr><td>profile_deep_link</td><td>Link to their TikTok profile</td><td>user.info.profile</td></tr>
+<tr><td>is_verified</td><td>Blue-check verified status</td><td>user.info.profile</td></tr>
+<tr><td>follower_count</td><td>👥 Number of followers</td><td>user.info.stats</td></tr>
+<tr><td>following_count</td><td>Accounts they follow</td><td>user.info.stats</td></tr>
+<tr><td>likes_count</td><td>❤️ Total likes received</td><td>user.info.stats</td></tr>
+<tr><td>video_count</td><td>Number of posted videos</td><td>user.info.stats</td></tr>
+</table>
+
+<h3 class="api">4.2 List User's Videos <span class="pill post">POST</span></h3>
+<div class="meaning"><b>Meaning:</b> Returns a paginated list of the logged-in user's own videos,
+including engagement metrics (views, likes, comments, shares) per video.</div>
+<div class="endpoint">POST https://open.tiktokapis.com/v2/video/list/?fields=...</div>
+<pre><span class="c">curl</span> --location --request POST <span class="s">'https://open.tiktokapis.com/v2/video/list/?fields=id,title,video_description,duration,cover_image_url,share_url,embed_link,create_time,view_count,like_count,comment_count,share_count'</span> \
+  --header <span class="s">'Authorization: Bearer ACCESS_TOKEN'</span> \
+  --header <span class="s">'Content-Type: application/json'</span> \
+  --data <span class="s">'{ "max_count": 20 }'</span>
+<span class="cm"># Use the returned "cursor" + "has_more" to page through all videos</span></pre>
+
+<h3 class="api">4.3 Query Specific Videos <span class="pill post">POST</span></h3>
+<div class="meaning"><b>Meaning:</b> Look up engagement for specific video IDs (up to 20). Useful to
+refresh stats of known videos. Only returns videos owned by the authorized user.</div>
+<div class="endpoint">POST https://open.tiktokapis.com/v2/video/query/?fields=...</div>
+<pre><span class="c">curl</span> --location --request POST <span class="s">'https://open.tiktokapis.com/v2/video/query/?fields=id,title,view_count,like_count,comment_count,share_count,cover_image_url,share_url'</span> \
+  --header <span class="s">'Authorization: Bearer ACCESS_TOKEN'</span> \
+  --header <span class="s">'Content-Type: application/json'</span> \
+  --data <span class="s">'{ "filters": { "video_ids": ["123456789", "987654321"] } }'</span></pre>
+<table>
+<tr><th>Video field</th><th>Meaning</th></tr>
+<tr><td>view_count</td><td>👁️ Number of views</td></tr>
+<tr><td>like_count</td><td>❤️ Likes</td></tr>
+<tr><td>comment_count</td><td>💬 Comments</td></tr>
+<tr><td>share_count</td><td>🔁 Shares</td></tr>
+<tr><td>title / video_description</td><td>Caption text</td></tr>
+<tr><td>cover_image_url</td><td>Thumbnail image</td></tr>
+<tr><td>share_url / embed_link</td><td>Links to the video</td></tr>
+<tr><td>duration / create_time / id</td><td>Length, post time, video ID</td></tr>
+</table>
+<div class="note"><b>Scope for 4.2 &amp; 4.3:</b> <code>video.list</code>. Limit: up to 20 video IDs per request.</div>
+
+<!-- 5. RESEARCH API -->
+<h2 class="section">5. Research API (any public user — research only)</h2>
+<div class="warn"><b>Access restricted:</b> Requires a separate TikTok approval and is limited to
+<b>non-profit academic research</b> in the US/EU. Commercial influencer apps are usually rejected.
+Listed here for completeness.</div>
+
+<h3 class="api">5.1 Query User Info <span class="pill post">POST</span></h3>
+<div class="meaning"><b>Meaning:</b> Look up a public user's stats by username — without them logging in.</div>
+<div class="endpoint">POST https://open.tiktokapis.com/v2/research/user/info/?fields=...</div>
+<pre><span class="c">curl</span> --location --request POST <span class="s">'https://open.tiktokapis.com/v2/research/user/info/?fields=display_name,bio_description,avatar_url,is_verified,follower_count,following_count,likes_count,video_count'</span> \
+  --header <span class="s">'Authorization: Bearer ACCESS_TOKEN'</span> \
+  --header <span class="s">'Content-Type: application/json'</span> \
+  --data <span class="s">'{ "username": "some_creator" }'</span></pre>
+
+<h3 class="api">5.2 Query Videos <span class="pill post">POST</span></h3>
+<div class="meaning"><b>Meaning:</b> Search public videos by conditions (hashtag, keyword, region, date) and
+read their engagement (views, likes, comments, shares).</div>
+<div class="endpoint">POST https://open.tiktokapis.com/v2/research/video/query/?fields=...</div>
+<pre><span class="c">curl</span> --location --request POST <span class="s">'https://open.tiktokapis.com/v2/research/video/query/?fields=id,video_description,create_time,region_code,view_count,like_count,comment_count,share_count,username,hashtag_names'</span> \
+  --header <span class="s">'Authorization: Bearer ACCESS_TOKEN'</span> \
+  --header <span class="s">'Content-Type: application/json'</span> \
+  --data <span class="s">'{ "query": { "and": [ { "operation": "EQ", "field_name": "username", "field_values": ["some_creator"] } ] }, "start_date": "20260101", "end_date": "20260131", "max_count": 20 }'</span></pre>
+
+<!-- 6. NOT AVAILABLE -->
+<h2 class="section">6. What is NOT available</h2>
+<div class="warn">
+<b>❌ No Live Stream API.</b> TikTok's official platform has <b>no</b> API to start a livestream,
+or to read live chat / gifts / viewer counts. There are no live webhook events either.
+The only ways people read live data are <b>unofficial</b> libraries
+(TikTok-Live-Connector, TikTokLive) that reverse-engineer the internal WebCast protocol —
+these are against TikTok's Terms of Service and can break at any time.
+</div>
+<ul>
+  <li>❌ Go live / stream control — none</li>
+  <li>❌ Live chat, gifts, real-time viewers — none (officially)</li>
+  <li>❌ Reading another user's private data without their login — none</li>
+  <li>❌ User-level total view count — not exposed (only per-video view_count)</li>
+</ul>
+
+<!-- 7. SUMMARY -->
+<h2 class="section">7. Summary of all APIs</h2>
+<table>
+<tr><th>API</th><th>Endpoint</th><th>Method</th><th>Meaning / Use</th><th>Login?</th></tr>
+<tr><td>Authorize</td><td>/v2/auth/authorize/</td><td>GET</td><td>"Login with TikTok" — get code</td><td>—</td></tr>
+<tr><td>Token Exchange</td><td>/v2/oauth/token/</td><td>POST</td><td>Code → access_token</td><td>—</td></tr>
+<tr><td>Refresh Token</td><td>/v2/oauth/token/</td><td>POST</td><td>Renew expired token</td><td>—</td></tr>
+<tr><td>Revoke</td><td>/v2/oauth/revoke/</td><td>POST</td><td>Disconnect user</td><td>—</td></tr>
+<tr><td>Get User Info</td><td>/v2/user/info/</td><td>GET</td><td>Profile + follower/like/video counts</td><td>✅ Yes</td></tr>
+<tr><td>List Videos</td><td>/v2/video/list/</td><td>POST</td><td>User's videos + engagement</td><td>✅ Yes</td></tr>
+<tr><td>Query Videos</td><td>/v2/video/query/</td><td>POST</td><td>Specific videos' engagement</td><td>✅ Yes</td></tr>
+<tr><td>Research User</td><td>/v2/research/user/info/</td><td>POST</td><td>Any public user stats</td><td>❌ (approval)</td></tr>
+<tr><td>Research Videos</td><td>/v2/research/video/query/</td><td>POST</td><td>Search public videos</td><td>❌ (approval)</td></tr>
+<tr><td>Live Stream</td><td>—</td><td>—</td><td><b>Not available</b></td><td>—</td></tr>
+</table>
+
+<footer>
+TikTok for Developers API Reference — compiled from developers.tiktok.com/doc.<br>
+Field names &amp; scopes are subject to change by TikTok. Always verify against the live docs.
+</footer>
+
+</body>
+</html>
