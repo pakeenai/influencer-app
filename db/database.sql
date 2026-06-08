@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS xstream2_registration_submissions (
   review_note TEXT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- TikTok Login Kit: แมป open_id ของ TikTok -> influencer + เก็บ OAuth token (auth ภายใน, ไม่อยู่ใน snapshot)
+CREATE TABLE IF NOT EXISTS xstream2_influencer_tiktok (
+  open_id VARCHAR(128) PRIMARY KEY, influencer_id VARCHAR(64), union_id VARCHAR(128), scope VARCHAR(255),
+  access_token TEXT, refresh_token TEXT, expires_at VARCHAR(40), created_at VARCHAR(40), updated_at VARCHAR(40)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ============================================================
 -- DATA (seed)
 -- ============================================================
