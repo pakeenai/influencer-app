@@ -55,7 +55,11 @@ const appEnv = {
   IMS_BACKEND: env.IMS_BACKEND || 'sql',
   SQL_TABLE_PREFIX: env.SQL_TABLE_PREFIX || 'xstream2_',
   ADMIN_USERNAME: env.ADMIN_USERNAME || 'admin',
-  ADMIN_PASSWORD: env.ADMIN_PASSWORD || 'admin'
+  ADMIN_PASSWORD: env.ADMIN_PASSWORD || 'admin',
+  // TikTok Login Kit — ค่า public เท่านั้น (client_secret อยู่ฝั่ง server, ห้าม expose)
+  TIKTOK_CLIENT_KEY: env.TIKTOK_CLIENT_KEY || '',
+  TIKTOK_REDIRECT_URI: env.TIKTOK_REDIRECT_URI || '',
+  TIKTOK_SCOPES: env.TIKTOK_SCOPES || 'user.info.basic,user.info.profile,user.info.stats,video.list'
 };
 fs.writeFileSync(
   path.join(web, 'env-config.local.js'),

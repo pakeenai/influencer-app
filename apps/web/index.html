@@ -3,6 +3,7 @@
  <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tiktok-developers-site-verification" content="Wa40hUcCrZ72zXEnSlGHWM9JLmlFyVc9">
   <title>Xstream Solution</title>
   <link rel="icon" href="assets/xstream-logo.png" />
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
@@ -336,6 +337,7 @@ function logoutFromApp() {
   STATE.departmentCredentials = {};
   STATE.registrationCampaigns = [];
   STATE.registrationSubmissions = [];
+  STATE._tiktokDash = null;
   STATE.currentPage = 'login';
   STATE.role = null;
   STATE.adminUser = null;
@@ -2446,6 +2448,8 @@ function render() {
   lucide.createIcons();
   bindEvents();
   persistSessionIfLoggedIn_();
+  // โหลด/วาด TikTok Dashboard ในหน้า creator (อ่านจาก cache ถ้ามีแล้ว ไม่ดึงซ้ำ)
+  if (STATE.role === 'creator' && page === 'creator-home' && imsApiMode_()) loadTikTokDashboard_();
 }
 
 function renderLogin() {
@@ -2643,6 +2647,23 @@ function renderPINLogin() {
         </button>
       </form>
 
+      ${imsTikTokAvailable_() ? `
+      <div class="flex items-center gap-3 my-5">
+        <div class="flex-1 h-px bg-dark-700"></div>
+        <span class="text-dark-500 text-xs">หรือ</span>
+        <div class="flex-1 h-px bg-dark-700"></div>
+      </div>
+      <button type="button" onclick="startTikTokLogin()" class="w-full py-4 rounded-xl font-semibold text-white text-base card-hover flex items-center justify-center gap-3" style="background:#000;box-shadow:0 4px 15px rgba(0,0,0,0.4);">
+        <svg viewBox="0 0 48 48" width="22" height="22" aria-hidden="true">
+          <path fill="#25F4EE" d="M33.5 14.6a9.4 9.4 0 0 1-3-1.6v11.9a9.7 9.7 0 1 1-9.7-9.7c.34 0 .67.02 1 .06v4.1a5.7 5.7 0 1 0 4 5.45V6h4a9.4 9.4 0 0 0 .14 1.6 9.45 9.45 0 0 0 3.56 6.16z" opacity="0.9"/>
+          <path fill="#FE2C55" d="M35.5 12.6a9.45 9.45 0 0 1-2-6.6h-2a9.45 9.45 0 0 0 2 6.6 9.4 9.4 0 0 0 3 1.6v-1.5a9.4 9.4 0 0 1-1-.1z"/>
+          <path fill="#fff" d="M22.8 19.36a5.7 5.7 0 1 0 4 5.45V12.86a11.4 11.4 0 0 0 6.7 2.14v-2.4a9.4 9.4 0 0 1-3-1.6 9.45 9.45 0 0 1-3.56-6.16 9.4 9.4 0 0 1-.14-1.6h-4v18.86a5.7 5.7 0 1 1-4-5.45v-4.1c-.33-.04-.66-.06-1-.06z" opacity="0.0"/>
+          <path fill="#fff" d="M30.5 13a11.4 11.4 0 0 0 5 2v-2.4a9.4 9.4 0 0 1-3-1.6 9.45 9.45 0 0 1-2-2v15.9a9.7 9.7 0 1 1-9.7-9.7c.34 0 .67.02 1 .06v4.1a5.7 5.7 0 1 0 4 5.45V6h3a9.4 9.4 0 0 0 .7 4.5A9.5 9.5 0 0 0 30.5 13z"/>
+        </svg>
+        เข้าสู่ระบบด้วย TikTok
+      </button>
+      ` : ''}
+
       ${regCards ? `
       <div class="mt-8 text-left">
         <h3 class="text-sm font-semibold text-white mb-3">📋 งานเปิดรับลงทะเบียน</h3>
@@ -2760,6 +2781,335 @@ function validateAndLoginByPIN(pinCode) {
   if (window._imsDb) startFirestoreRealtime_();
   render();
   syncData();
+}
+
+// ---------- TikTok Login Kit (OAuth 2.0) ----------
+// client_key/redirect/scope เป็นค่า public (มาจาก .env -> env-config.local.js)
+// ส่วน client_secret + การแลก token อยู่ฝั่ง server (scripts/db-server.mjs)
+function imsTikTokCfg_() {
+  const e = (window.IMS_ENV) || {};
+  return {
+    clientKey: e.TIKTOK_CLIENT_KEY || '',
+    redirectUri: e.TIKTOK_REDIRECT_URI || (location.origin + location.pathname),
+    scopes: e.TIKTOK_SCOPES || 'user.info.basic,user.info.profile,user.info.stats,video.list',
+  };
+}
+function imsTikTokAvailable_() {
+  // รองรับเฉพาะ backend ที่มี server แลก token (mysql/db-server)
+  return imsApiMode_();
+}
+// TikTok PKCE: code_challenge = hex(SHA256(code_verifier)) — TikTok ใช้ hex (ไม่ใช่ base64url)
+async function imsSha256Hex_(str) {
+  const data = new TextEncoder().encode(str);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function startTikTokLogin() {
+  const cfg = imsTikTokCfg_();
+  if (!cfg.clientKey) {
+    Swal.fire({
+      icon: 'info',
+      title: 'ยังไม่ได้ตั้งค่า TikTok Login',
+      html: 'กำหนด <code>TIKTOK_CLIENT_KEY</code>, <code>TIKTOK_CLIENT_SECRET</code>, <code>TIKTOK_REDIRECT_URI</code> ใน <code>.env</code><br>แล้วรัน <code>npm run config:gen</code> และรีสตาร์ทเซิร์ฟเวอร์',
+    });
+    return;
+  }
+  const state = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()) + Date.now()).replace(/-/g, '');
+  // PKCE — สร้าง code_verifier (hex 64 ตัว) + code_challenge
+  const vb = new Uint8Array(32);
+  crypto.getRandomValues(vb);
+  const codeVerifier = Array.from(vb).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const codeChallenge = await imsSha256Hex_(codeVerifier);
+  try {
+    sessionStorage.setItem('tiktok_oauth_state', state);
+    sessionStorage.setItem('tiktok_code_verifier', codeVerifier);
+  } catch {}
+  // 3.1 — Authorization Request: ส่งผู้ใช้ไปล็อกอิน/อนุญาตที่ TikTok (พร้อม PKCE)
+  const params = new URLSearchParams({
+    client_key: cfg.clientKey,
+    scope: cfg.scopes,
+    response_type: 'code',
+    redirect_uri: cfg.redirectUri,
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+  });
+  window.location.href = 'https://www.tiktok.com/v2/auth/authorize/?' + params.toString();
+}
+// เรียกตอน boot: ถ้า url มี ?code=... (TikTok redirect กลับมา) ให้แลก token แล้วล็อกอิน
+async function handleTikTokCallbackIfPresent_() {
+  const sp = new URLSearchParams(location.search || '');
+  const code = sp.get('code');
+  const err = sp.get('error');
+  if (!code && !err) return false;
+  const state = sp.get('state');
+  let saved = null;
+  let codeVerifier = '';
+  try {
+    saved = sessionStorage.getItem('tiktok_oauth_state');
+    codeVerifier = sessionStorage.getItem('tiktok_code_verifier') || '';
+  } catch {}
+  const cleanUrl = location.origin + location.pathname;
+  if (err) {
+    history.replaceState(null, '', cleanUrl);
+    Swal.fire({ icon: 'error', title: 'TikTok ปฏิเสธการเข้าสู่ระบบ', text: sp.get('error_description') || err });
+    return true;
+  }
+  // ตรวจ CSRF state
+  if (!saved || saved !== state) {
+    history.replaceState(null, '', cleanUrl);
+    Swal.fire({ icon: 'error', title: 'การยืนยันไม่ถูกต้อง (state)', text: 'กรุณาลองเข้าสู่ระบบด้วย TikTok อีกครั้ง' });
+    return true;
+  }
+  try { sessionStorage.removeItem('tiktok_oauth_state'); sessionStorage.removeItem('tiktok_code_verifier'); } catch {}
+  history.replaceState(null, '', cleanUrl);
+  if (!imsTikTokAvailable_()) {
+    Swal.fire({ icon: 'error', title: 'ไม่รองรับ TikTok Login บน backend นี้', text: 'ต้องใช้ backend แบบ server (IMS_BACKEND=mysql)' });
+    return true;
+  }
+  Swal.fire({ title: 'กำลังเข้าสู่ระบบด้วย TikTok...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+  try {
+    const cfg = imsTikTokCfg_();
+    const r = await imsApiFetch_('/tiktok/exchange', { method: 'POST', body: { code, redirect_uri: cfg.redirectUri, code_verifier: codeVerifier } });
+    if (!r || !r.success) {
+      Swal.fire({ icon: 'error', title: 'เข้าสู่ระบบด้วย TikTok ไม่สำเร็จ', text: (r && r.error) || 'แลก token ไม่สำเร็จ' });
+      return true;
+    }
+    imsApiSetToken_(r.token);
+    STATE.role = 'creator';
+    STATE.currentPage = 'creator-home';
+    STATE.currentUser = r.influencer;
+    STATE.creatorDepartmentId = (r.influencer && r.influencer.department_id) || null;
+    STATE._loginTab = null;
+    await imsApiSnapshot_();
+    Swal.close();
+    render();
+  } catch (e) {
+    Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด', text: e.message || String(e) });
+  }
+  return true;
+}
+
+// ---------- TikTok Dashboard (แสดงข้อมูลจาก Display API) ----------
+function imsFmtCount_(n) {
+  n = Number(n || 0);
+  if (!isFinite(n)) return '0';
+  if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(n % 1e9 === 0 ? 0 : 1) + 'B';
+  if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + 'M';
+  if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(n % 1e3 === 0 ? 0 : 1) + 'K';
+  return String(n);
+}
+function imsFmtFull_(n) { return Number(n || 0).toLocaleString('en-US'); }
+function imsFmtDuration_(s) {
+  s = Math.max(0, Math.floor(Number(s || 0)));
+  const m = Math.floor(s / 60), r = s % 60;
+  return m + ':' + String(r).padStart(2, '0');
+}
+function imsFmtDate_(unixSec) {
+  const t = Number(unixSec || 0);
+  if (!t) return '-';
+  try { return new Date(t * 1000).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { return '-'; }
+}
+
+async function tiktokLogout_() {
+  const res = await Swal.fire({
+    icon: 'question',
+    title: 'ออกจากระบบ TikTok?',
+    text: 'จะตัดการเชื่อมต่อ TikTok และออกจากระบบ',
+    showCancelButton: true,
+    confirmButtonText: 'ออกจากระบบ',
+    cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#ef4444',
+  });
+  if (!res.isConfirmed) return;
+  Swal.fire({ title: 'กำลังออกจากระบบ...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+  try { await imsApiFetch_('/tiktok/revoke', { method: 'POST' }); } catch {}
+  imsApiSetToken_(null);
+  STATE._tiktokDash = null;
+  Swal.close();
+  logoutFromApp();
+}
+
+async function loadTikTokDashboard_(force) {
+  if (!imsApiMode_()) return;
+  const d = STATE._tiktokDash || (STATE._tiktokDash = {});
+  if (d.loading) return;
+  if (d.loaded && !force) { paintTikTokDash_(); return; }
+  d.loading = true; paintTikTokDash_();
+  try {
+    const [me, vids] = await Promise.all([
+      imsApiFetch_('/tiktok/me'),
+      imsApiFetch_('/tiktok/videos'),
+    ]);
+    d.linked = !!((me && me.linked) || (vids && vids.linked));
+    d.user = (me && me.user) || null;
+    d.videos = (vids && vids.videos) || [];
+    d.error = (me && me.error) || (vids && vids.error) || null;
+    d.loaded = true;
+  } catch (e) {
+    d.error = e.message || String(e);
+  }
+  d.loading = false;
+  paintTikTokDash_();
+}
+function paintTikTokDash_() {
+  const el = document.getElementById('tiktokDashboard');
+  if (!el) return;
+  el.innerHTML = renderTikTokDashHtml_();
+  try { lucide.createIcons(); } catch {}
+}
+function renderTikTokDashHtml_() {
+  const d = STATE._tiktokDash || {};
+  // ยังไม่ได้ผูก TikTok (เช่นล็อกอินด้วย PIN) → ไม่ต้องแสดง
+  if (d.loaded && !d.linked && !d.error) return '';
+  const headerHtml = `
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-dark-950 text-sm flex items-center gap-2">
+        <span style="font-size:16px;">🎵</span> TikTok Dashboard
+      </h3>
+      <div class="flex items-center gap-3">
+        <button type="button" onclick="loadTikTokDashboard_(true)" class="text-xs text-dark-500 hover:text-dark-950 flex items-center gap-1 ${d.loading ? 'opacity-50 pointer-events-none' : ''}">
+          <i data-lucide="refresh-cw" style="width:13px;height:13px;"></i> รีเฟรช
+        </button>
+        <button type="button" onclick="tiktokLogout_()" class="text-xs text-red-500 hover:text-red-600 flex items-center gap-1">
+          <i data-lucide="log-out" style="width:13px;height:13px;"></i> ออกจากระบบ TikTok
+        </button>
+      </div>
+    </div>`;
+  return `<div class="fade-in bg-white rounded-xl p-5 gold-border">${headerHtml}${renderTikTokDashBody_(d)}</div>`;
+}
+
+// แสดงเนื้อหา dashboard (โปรไฟล์ + วิดีโอ) — ใช้ทั้งหน้า creator และ modal ฝั่ง admin
+function renderTikTokDashBody_(d) {
+  d = d || {};
+  if (!d.loaded && d.loading) {
+    return `<div class="flex items-center gap-2 text-dark-500 text-sm py-6 justify-center">
+        <i data-lucide="loader" style="width:16px;height:16px;" class="animate-spin"></i> กำลังดึงข้อมูลจาก TikTok...
+      </div>`;
+  }
+  if (d.error) {
+    return `<div class="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+        <p class="font-semibold mb-1">⚠️ ดึงข้อมูล TikTok ไม่สำเร็จ</p>
+        <p class="text-xs">${imsEsc_(d.error)}</p>
+        <p class="text-[11px] text-red-500 mt-2">access token อาจหมดอายุ — creator ต้องล็อกอินด้วย TikTok อีกครั้ง</p>
+      </div>`;
+  }
+  if (d.loaded && !d.linked) {
+    return '<div class="bg-dark-50 rounded-lg p-6 text-center border-2 border-dashed border-dark-200"><p class="text-dark-500 text-sm">creator นี้ยังไม่ได้เชื่อมต่อ TikTok (หรือยกเลิกการเชื่อมต่อแล้ว)</p></div>';
+  }
+
+  const u = d.user || {};
+  const videos = Array.isArray(d.videos) ? d.videos : [];
+  const verified = u.is_verified ? '<span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-500 text-white text-[10px] ml-1" title="Verified">✓</span>' : '';
+  const avatar = u.avatar_url
+    ? `<img src="${imsEsc_(u.avatar_url)}" alt="" class="w-16 h-16 rounded-full object-cover border-2 border-dark-100" referrerpolicy="no-referrer" onerror="this.style.display='none'">`
+    : '<div class="w-16 h-16 rounded-full bg-dark-100 flex items-center justify-center text-dark-400 text-xl">🎵</div>';
+
+  const stat = (label, val, color) => `
+    <div class="bg-dark-50 rounded-lg p-3 text-center">
+      <p class="text-[11px] text-dark-500 mb-0.5">${label}</p>
+      <p class="text-lg font-bold" style="color:${color};" title="${imsFmtFull_(val)}">${imsFmtCount_(val)}</p>
+    </div>`;
+
+  const profileCard = `
+    <div class="bg-white rounded-xl p-5 gold-border mb-3">
+      <div class="flex items-start gap-4">
+        ${avatar}
+        <div class="flex-1 min-w-0">
+          <h4 class="font-bold text-dark-950 text-base flex items-center flex-wrap">${imsEsc_(u.display_name || '-')}${verified}</h4>
+          ${u.bio_description ? `<p class="text-xs text-dark-500 mt-1 whitespace-pre-wrap break-words">${imsEsc_(u.bio_description)}</p>` : ''}
+          ${u.profile_deep_link ? `<a href="${imsEsc_(u.profile_deep_link)}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline mt-2"><i data-lucide="external-link" style="width:12px;height:12px;"></i> เปิดโปรไฟล์ TikTok</a>` : ''}
+        </div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+        ${stat('👥 Followers', u.follower_count, '#0ea5e9')}
+        ${stat('Following', u.following_count, '#6b7280')}
+        ${stat('❤️ Likes', u.likes_count, '#ef4444')}
+        ${stat('🎬 Videos', u.video_count, '#e6ad1a')}
+      </div>
+      <details class="mt-3">
+        <summary class="text-[11px] text-dark-400 cursor-pointer hover:text-dark-600">ข้อมูลบัญชี (open_id / union_id / raw)</summary>
+        <div class="mt-2 text-[11px] text-dark-500 space-y-1 break-all">
+          <div><span class="text-dark-400">open_id:</span> ${imsEsc_(u.open_id || '-')}</div>
+          <div><span class="text-dark-400">union_id:</span> ${imsEsc_(u.union_id || '-')}</div>
+          <div><span class="text-dark-400">is_verified:</span> ${u.is_verified ? 'true' : 'false'}</div>
+          <pre class="bg-dark-950 text-green-300 rounded-lg p-2 mt-1 overflow-auto text-[10px] leading-relaxed">${imsEsc_(JSON.stringify(u, null, 2))}</pre>
+        </div>
+      </details>
+    </div>`;
+
+  const vmetric = (icon, val) => `<span class="inline-flex items-center gap-1" title="${imsFmtFull_(val)}">${icon} ${imsFmtCount_(val)}</span>`;
+  const videoCards = videos.length === 0
+    ? '<div class="bg-dark-50 rounded-lg p-6 text-center border-2 border-dashed border-dark-200"><p class="text-dark-500 text-sm">ยังไม่มีวิดีโอ หรือไม่ได้ให้สิทธิ์ scope video.list</p></div>'
+    : `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        ${videos.map((v) => {
+          const cap = v.title || v.video_description || '(ไม่มีคำบรรยาย)';
+          const cover = v.cover_image_url
+            ? `<img src="${imsEsc_(v.cover_image_url)}" alt="" class="w-full h-40 object-cover" referrerpolicy="no-referrer" onerror="this.parentElement.style.background='#e5e7eb'">`
+            : '<div class="w-full h-40 bg-dark-100 flex items-center justify-center text-dark-400">🎬</div>';
+          const link = v.share_url || v.embed_link || '';
+          return `
+          <div class="bg-white rounded-xl overflow-hidden border border-dark-100 flex flex-col">
+            <div class="relative">
+              ${cover}
+              ${v.duration ? `<span class="absolute bottom-1 right-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded">${imsFmtDuration_(v.duration)}</span>` : ''}
+            </div>
+            <div class="p-3 flex flex-col flex-1">
+              <p class="text-xs text-dark-800 line-clamp-2 mb-2 break-words" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${imsEsc_(cap)}</p>
+              <div class="grid grid-cols-2 gap-1 text-[11px] text-dark-600 mb-2">
+                ${vmetric('👁️', v.view_count)}
+                ${vmetric('❤️', v.like_count)}
+                ${vmetric('💬', v.comment_count)}
+                ${vmetric('🔁', v.share_count)}
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-dark-400 mt-auto pt-2 border-t border-dark-50">
+                <span>${imsFmtDate_(v.create_time)}</span>
+                ${link ? `<a href="${imsEsc_(link)}" target="_blank" rel="noopener" class="text-sky-600 hover:underline inline-flex items-center gap-0.5">ดูคลิป <i data-lucide="external-link" style="width:10px;height:10px;"></i></a>` : ''}
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+
+  return `
+    ${profileCard}
+    <h4 class="font-semibold text-dark-950 text-sm mb-2 flex items-center gap-2"><i data-lucide="clapperboard" style="width:15px;height:15px;color:#e6ad1a;"></i> วิดีโอล่าสุด (${videos.length})</h4>
+    ${videoCards}
+    <details class="mt-3">
+      <summary class="text-[11px] text-dark-400 cursor-pointer hover:text-dark-600">ดูข้อมูลวิดีโอดิบ (raw JSON)</summary>
+      <pre class="bg-dark-950 text-green-300 rounded-lg p-2 mt-2 overflow-auto text-[10px] leading-relaxed max-h-80">${imsEsc_(JSON.stringify(videos, null, 2))}</pre>
+    </details>`;
+}
+
+// ---------- Admin: ดู TikTok Dashboard ของ creator คนใดคนหนึ่ง ----------
+async function openAdminTikTokDashboard_(infId, name) {
+  STATE._adminTikTok = { influencerId: infId, name: name || '', loading: true, loaded: false };
+  STATE.modalOpen = 'tiktok-creator-dashboard';
+  render();
+  await loadAdminTikTokDashboard_();
+}
+async function loadAdminTikTokDashboard_() {
+  const a = STATE._adminTikTok;
+  if (!a || !a.influencerId) return;
+  a.loading = true;
+  const paint = () => { const el = document.getElementById('adminTikTokDashBody'); if (el) { el.innerHTML = renderTikTokDashBody_(a); try { lucide.createIcons(); } catch {} } };
+  if (!a.loaded) paint();
+  try {
+    const qs = '?influencer_id=' + encodeURIComponent(a.influencerId);
+    const [me, vids] = await Promise.all([
+      imsApiFetch_('/tiktok/me' + qs),
+      imsApiFetch_('/tiktok/videos' + qs),
+    ]);
+    a.linked = !!((me && me.linked) || (vids && vids.linked));
+    a.user = (me && me.user) || null;
+    a.videos = (vids && vids.videos) || [];
+    a.error = (me && me.error) || (vids && vids.error) || null;
+    a.loaded = true;
+  } catch (e) {
+    a.error = e.message || String(e);
+  }
+  a.loading = false;
+  paint();
 }
 
 function loginAsAdmin(username, password) {
@@ -2989,6 +3339,8 @@ function renderCreatorPortal() {
           </div>
         </div>
       </div>
+
+      <div id="tiktokDashboard"></div>
 
       ${(() => { const rs = renderRegistrationCampaignCardsHtml_({ theme: 'light' }); return rs ? `<div class="fade-in"><h3 class="font-semibold text-dark-950 text-sm mb-3 flex items-center gap-2"><i data-lucide="clipboard-list" style="width:16px;height:16px;color:#e6ad1a;"></i> ลงทะเบียนเข้าร่วมงาน</h3>${rs}</div>` : ''; })()}
 
@@ -3578,6 +3930,7 @@ function renderInfluencersPage() {
               <td class="text-dark-600 max-w-[220px]">${socHtml || '<span class="text-dark-400">—</span>'}</td>
               <td>${pinCode !== '-' ? `<span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-bold">🔐 ${pinCode}</span>` : '<span class="text-dark-400">—</span>'}</td>
               <td class="text-right whitespace-nowrap">
+                ${inf.tiktok_linked ? `<button type="button" data-ims-action="inf-tiktok" data-inf-id="${esc(inf.id)}" data-inf-name="${esc(inf.name || '')}" class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold mr-1" style="background:#000;color:#fff;border:none;cursor:pointer;" title="ดู TikTok Dashboard"><i data-lucide="bar-chart-3" style="width:14px;height:14px;pointer-events:none;"></i> TikTok</button>` : ''}
                 <button type="button" data-ims-action="inf-pin" data-inf-id="${esc(inf.id)}" data-inf-name="${esc(inf.name || '')}" class="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold mr-1" style="background:#3b82f6;color:#fff;border:none;cursor:pointer;" title="สร้าง PIN">
                   <i data-lucide="key" style="width:14px;height:14px;pointer-events:none;"></i> PIN
                 </button>
@@ -4390,7 +4743,24 @@ async function runInfluencerBulkImport_() {
 
 function renderModal() {
   let title = '', content = '';
-  
+
+  if (STATE.modalOpen === 'tiktok-creator-dashboard') {
+    const a = STATE._adminTikTok || {};
+    return `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal();">
+      <div class="modal-box fade-in" style="max-width:920px;">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-dark-950 text-lg flex items-center gap-2"><span style="font-size:18px;">🎵</span> TikTok Dashboard — ${imsEsc_(a.name || '')}</h3>
+          <div class="flex items-center gap-3">
+            <button type="button" onclick="loadAdminTikTokDashboard_()" class="text-xs text-dark-500 hover:text-dark-950 flex items-center gap-1 ${a.loading ? 'opacity-50 pointer-events-none' : ''}"><i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> รีเฟรช</button>
+            <button onclick="closeModal()" class="p-1 rounded hover:bg-dark-50"><i data-lucide="x" style="width:20px;height:20px;color:#6e7183;"></i></button>
+          </div>
+        </div>
+        <div id="adminTikTokDashBody">${renderTikTokDashBody_(a)}</div>
+      </div>
+    </div>`;
+  }
+
   if (STATE.modalOpen === 'add-influencer') {
     const e = STATE.editItem;
     title = e ? 'แก้ไข Influencer' : 'เพิ่ม Influencer';
@@ -5040,6 +5410,10 @@ function imsBindDelegatedClicks_() {
       e.preventDefault();
       const infName = btn.getAttribute('data-inf-name') || '';
       generateInfluencerPIN(infId, infName);
+    } else if (action === 'inf-tiktok') {
+      e.preventDefault();
+      const infName = btn.getAttribute('data-inf-name') || '';
+      openAdminTikTokDashboard_(infId, infName);
     }
   });
 }
@@ -5587,6 +5961,8 @@ try {
 } catch {}
 render();
 bootstrapFirebaseRealtimeAfterReload_();
+// TikTok OAuth redirect กลับมาที่ ?code=... -> แลก token แล้วล็อกอิน
+try { handleTikTokCallbackIfPresent_(); } catch {}
 // โหลดข้อมูลครั้งแรก (Firestore realtime)
 syncData({ silent: true }).finally(() => {
   ensureRealtime();
@@ -5606,6 +5982,7 @@ window.reviewRegistrationSubmission_ = reviewRegistrationSubmission_;
 window.downloadInfluencerImportTemplate = downloadInfluencerImportTemplate;
 window.imsExportSqlFile = imsExportSqlFile;
 window.imsImportSqlFile = imsImportSqlFile;
+window.startTikTokLogin = startTikTokLogin;
 
 /* --- END: Remaining functions --- */
   </script>

@@ -41,6 +41,15 @@ const ENV = loadEnv();
 const PREFIX = ENV.SQL_TABLE_PREFIX || 'xstream2_';
 const PORT = parseInt(ENV.PORT || '8091', 10);
 
+// ---------- TikTok Login Kit (OAuth 2.0) ----------
+const TIKTOK = {
+  clientKey: ENV.TIKTOK_CLIENT_KEY || '',
+  clientSecret: ENV.TIKTOK_CLIENT_SECRET || '',
+  redirectUri: ENV.TIKTOK_REDIRECT_URI || '',
+  scopes: ENV.TIKTOK_SCOPES || 'user.info.basic,user.info.profile,user.info.stats,video.list',
+};
+const tiktokConfigured = () => !!(TIKTOK.clientKey && TIKTOK.clientSecret && TIKTOK.redirectUri);
+
 // ---------- schema ----------
 const TABLES = ['admins', 'influencers', 'influencer_pins', 'departments', 'department_credentials', 'projects', 'posts', 'registration_campaigns', 'registration_submissions'];
 const PK = {
@@ -142,6 +151,8 @@ async function ensureSchema() {
   for (const stmt of SCHEMA_SQL.split(';').map((s) => s.trim()).filter(Boolean)) {
     await pool.query(stmt);
   }
+  // TikTok Login Kit: แมป open_id ของ TikTok -> influencer + เก็บ token (auth ภายใน, ไม่อยู่ใน snapshot)
+  await pool.query(`CREATE TABLE IF NOT EXISTS \`${tbl('influencer_tiktok')}\` (open_id VARCHAR(128) PRIMARY KEY, influencer_id VARCHAR(64), union_id VARCHAR(128), scope VARCHAR(255), access_token TEXT, refresh_token TEXT, expires_at VARCHAR(40), created_at VARCHAR(40), updated_at VARCHAR(40)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   // migrations: เพิ่มคอลัมน์ที่อาจยังไม่มีใน DB เดิม
   await ensureColumn('influencers', 'rating', "INT DEFAULT 0 AFTER `national_id`");
   await ensureColumn('influencers', 'avatar_url', "LONGTEXT AFTER `rating`");
@@ -191,7 +202,226 @@ async function handleLogin(body) {
   return { status: 400, json: { success: false, error: 'Unknown login kind' } };
 }
 
+// ---------- TikTok Login Kit: แลก code -> token -> user info -> login creator ----------
+async function tiktokGetMapping(openId) {
+  const [rows] = await pool.query(`SELECT * FROM \`${tbl('influencer_tiktok')}\` WHERE open_id = ? LIMIT 1`, [openId]);
+  return rows.length ? rows[0] : null;
+}
+async function tiktokUpsertMapping(row) {
+  await pool.query(
+    `INSERT INTO \`${tbl('influencer_tiktok')}\` (open_id, influencer_id, union_id, scope, access_token, refresh_token, expires_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE influencer_id=VALUES(influencer_id), union_id=VALUES(union_id), scope=VALUES(scope), access_token=VALUES(access_token), refresh_token=VALUES(refresh_token), expires_at=VALUES(expires_at), updated_at=VALUES(updated_at)`,
+    [row.open_id, row.influencer_id, row.union_id || '', row.scope || '', row.access_token || '', row.refresh_token || '', row.expires_at || '', row.created_at, row.updated_at]
+  );
+}
+
+async function handleTikTokExchange(body) {
+  if (!tiktokConfigured()) {
+    return { status: 500, json: { success: false, error: 'TikTok Login ยังไม่ได้ตั้งค่า — กำหนด TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET / TIKTOK_REDIRECT_URI ใน .env' } };
+  }
+  const code = String(body.code || '');
+  if (!code) return { status: 400, json: { success: false, error: 'Missing code' } };
+  const redirectUri = String(body.redirect_uri || TIKTOK.redirectUri);
+  const codeVerifier = String(body.code_verifier || '');
+
+  // 3.2 — แลก code เป็น access_token (client_secret อยู่ฝั่ง server เท่านั้น)
+  let token;
+  try {
+    const form = {
+      client_key: TIKTOK.clientKey,
+      client_secret: TIKTOK.clientSecret,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri,
+    };
+    if (codeVerifier) form.code_verifier = codeVerifier; // PKCE (TikTok บังคับสำหรับ web app)
+    const tokenRes = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(form).toString(),
+    });
+    token = await tokenRes.json().catch(() => ({}));
+    if (!tokenRes.ok || !token || !token.access_token) {
+      return { status: 401, json: { success: false, error: token.error_description || token.error || 'แลก token จาก TikTok ไม่สำเร็จ' } };
+    }
+  } catch (e) {
+    return { status: 502, json: { success: false, error: 'ติดต่อ TikTok ไม่สำเร็จ: ' + (e.message || String(e)) } };
+  }
+
+  const accessToken = token.access_token;
+  let openId = token.open_id || '';
+
+  // 4.1 — ดึงโปรไฟล์ผู้ใช้ที่เพิ่งล็อกอิน
+  const fields = 'open_id,union_id,avatar_url,display_name,bio_description,profile_deep_link,is_verified,follower_count,following_count,likes_count,video_count';
+  let user = {};
+  try {
+    const infoRes = await fetch('https://open.tiktokapis.com/v2/user/info/?fields=' + encodeURIComponent(fields), {
+      headers: { Authorization: 'Bearer ' + accessToken },
+    });
+    const info = await infoRes.json().catch(() => ({}));
+    user = (info && info.data && info.data.user) || {};
+  } catch { /* ดึงโปรไฟล์ไม่ได้ก็ยังล็อกอินได้ด้วย open_id */ }
+  openId = user.open_id || openId;
+  if (!openId) return { status: 502, json: { success: false, error: 'TikTok ไม่ส่ง open_id กลับมา' } };
+
+  const now = nowIso();
+  const expiresAt = token.expires_in ? new Date(Date.now() + Number(token.expires_in) * 1000).toISOString() : '';
+
+  // หา influencer ที่ผูกกับ open_id นี้ — ถ้าไม่มี ให้สร้างใหม่ (สมัครครั้งแรกผ่าน TikTok)
+  const mapping = await tiktokGetMapping(openId);
+  let influencer = mapping && mapping.influencer_id ? await getById('influencers', mapping.influencer_id) : null;
+  if (!influencer) {
+    const id = 'inf_tt_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
+    influencer = {
+      id, name: user.display_name || 'TikTok Creator', phone: '', line: '', email: '', national_id: '',
+      rating: 0, avatar_url: user.avatar_url || '', url_tiktok: user.profile_deep_link || '',
+      url_shopee: '', url_facebook: '', url_instagram: '', url_lemon9: '',
+      department_id: '', platforms: ['tiktok'], notes: 'สมัครผ่าน TikTok Login', created_at: now, updated_at: now,
+    };
+    await upsert('influencers', influencer);
+  }
+
+  await tiktokUpsertMapping({
+    open_id: openId, influencer_id: influencer.id, union_id: user.union_id || '',
+    scope: token.scope || '', access_token: accessToken, refresh_token: token.refresh_token || '',
+    expires_at: expiresAt, created_at: (mapping && mapping.created_at) || now, updated_at: now,
+  });
+
+  const tkn = newToken();
+  SESSIONS.set(tkn, { role: 'creator', influencerId: influencer.id, deptId: influencer.department_id || null });
+  return { status: 200, json: { success: true, token: tkn, role: 'creator', influencer } };
+}
+
+// 3.3 — refresh access token เมื่อหมดอายุ
+async function tiktokRefreshToken(mapping) {
+  if (!mapping || !mapping.refresh_token) return null;
+  try {
+    const res = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_key: TIKTOK.clientKey, client_secret: TIKTOK.clientSecret,
+        grant_type: 'refresh_token', refresh_token: mapping.refresh_token,
+      }).toString(),
+    });
+    const t = await res.json().catch(() => ({}));
+    if (!res.ok || !t.access_token) return null;
+    const now = nowIso();
+    const expiresAt = t.expires_in ? new Date(Date.now() + Number(t.expires_in) * 1000).toISOString() : '';
+    const updated = {
+      open_id: mapping.open_id, influencer_id: mapping.influencer_id, union_id: mapping.union_id || '',
+      scope: t.scope || mapping.scope || '', access_token: t.access_token,
+      refresh_token: t.refresh_token || mapping.refresh_token, expires_at: expiresAt,
+      created_at: mapping.created_at || now, updated_at: now,
+    };
+    await tiktokUpsertMapping(updated);
+    return updated;
+  } catch { return null; }
+}
+
+// ดึง mapping + access token ที่ใช้ได้ (refresh ให้อัตโนมัติถ้าใกล้หมดอายุ)
+async function tiktokTokenForInfluencer(influencerId) {
+  const [rows] = await pool.query(`SELECT * FROM \`${tbl('influencer_tiktok')}\` WHERE influencer_id = ? LIMIT 1`, [influencerId]);
+  let m = rows.length ? rows[0] : null;
+  if (!m) return null;
+  if (m.expires_at) {
+    const exp = Date.parse(m.expires_at);
+    if (!isNaN(exp) && exp - Date.now() < 60000) {
+      const refreshed = await tiktokRefreshToken(m);
+      if (refreshed) m = refreshed;
+    }
+  }
+  return m;
+}
+
+// TikTok API ตอบ { data: {...}, error: { code:'ok', message:'' } } — code != 'ok' = error
+function tiktokApiError_(j) {
+  if (j && j.error && j.error.code && j.error.code !== 'ok') return j.error.message || j.error.code;
+  return null;
+}
+
+// หา influencer เป้าหมาย: creator = ตัวเอง / admin = influencer_id ที่ส่งมา (ตามสิทธิ์)
+async function resolveTikTokTarget_(ctx, influencerIdParam) {
+  if (!ctx) return { error: 'unauthorized', status: 401 };
+  if (ctx.role === 'creator' && ctx.influencerId) return { influencerId: ctx.influencerId };
+  if (ctx.role === 'admin') {
+    const id = String(influencerIdParam || '');
+    if (!id) return { error: 'missing influencer_id', status: 400 };
+    if (ctx.adminRole === 'super_admin') return { influencerId: id };
+    if (ctx.adminRole === 'department_admin' && ctx.deptId) {
+      const inf = await getById('influencers', id);
+      if (inf && String(inf.department_id) === String(ctx.deptId)) return { influencerId: id };
+      return { error: 'forbidden', status: 403 };
+    }
+  }
+  return { error: 'unauthorized', status: 401 };
+}
+
+// 4.1 — Get User Info (โปรไฟล์ + สถิติ ของผู้ใช้ที่ล็อกอิน หรือ influencer ที่ admin เลือก)
+async function handleTikTokMe(ctx, influencerIdParam) {
+  const t = await resolveTikTokTarget_(ctx, influencerIdParam);
+  if (t.error) return { status: t.status, json: { success: false, error: t.error } };
+  const m = await tiktokTokenForInfluencer(t.influencerId);
+  if (!m || !m.access_token) return { status: 200, json: { success: true, linked: false } };
+  try {
+    const fields = 'open_id,union_id,avatar_url,display_name,bio_description,profile_deep_link,is_verified,follower_count,following_count,likes_count,video_count';
+    const res = await fetch('https://open.tiktokapis.com/v2/user/info/?fields=' + encodeURIComponent(fields), { headers: { Authorization: 'Bearer ' + m.access_token } });
+    const j = await res.json().catch(() => ({}));
+    const err = tiktokApiError_(j);
+    if (!res.ok || err) return { status: 200, json: { success: false, linked: true, error: err || 'ดึงข้อมูลโปรไฟล์ไม่สำเร็จ' } };
+    return { status: 200, json: { success: true, linked: true, user: (j.data && j.data.user) || {} } };
+  } catch (e) {
+    return { status: 200, json: { success: false, linked: true, error: e.message || String(e) } };
+  }
+}
+
+// 4.2 — List User's Videos (วิดีโอ + engagement)
+async function handleTikTokVideos(ctx, influencerIdParam) {
+  const t = await resolveTikTokTarget_(ctx, influencerIdParam);
+  if (t.error) return { status: t.status, json: { success: false, error: t.error, videos: [] } };
+  const m = await tiktokTokenForInfluencer(t.influencerId);
+  if (!m || !m.access_token) return { status: 200, json: { success: true, linked: false, videos: [] } };
+  try {
+    const fields = 'id,title,video_description,duration,cover_image_url,share_url,embed_link,create_time,view_count,like_count,comment_count,share_count';
+    const res = await fetch('https://open.tiktokapis.com/v2/video/list/?fields=' + encodeURIComponent(fields), {
+      method: 'POST', headers: { Authorization: 'Bearer ' + m.access_token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_count: 20 }),
+    });
+    const j = await res.json().catch(() => ({}));
+    const err = tiktokApiError_(j);
+    if (!res.ok || err) return { status: 200, json: { success: false, linked: true, error: err || 'ดึงวิดีโอไม่สำเร็จ', videos: [] } };
+    return { status: 200, json: { success: true, linked: true, videos: (j.data && j.data.videos) || [], cursor: j.data && j.data.cursor, has_more: !!(j.data && j.data.has_more) } };
+  } catch (e) {
+    return { status: 200, json: { success: false, linked: true, error: e.message || String(e), videos: [] } };
+  }
+}
+
+// 3.4 — Revoke Access (ตัดการเชื่อมต่อ TikTok / logout)
+async function handleTikTokRevoke(ctx) {
+  if (!ctx || ctx.role !== 'creator' || !ctx.influencerId) return { status: 401, json: { success: false, error: 'unauthorized' } };
+  const [rows] = await pool.query(`SELECT * FROM \`${tbl('influencer_tiktok')}\` WHERE influencer_id = ? LIMIT 1`, [ctx.influencerId]);
+  const m = rows.length ? rows[0] : null;
+  if (m && m.access_token) {
+    try {
+      await fetch('https://open.tiktokapis.com/v2/oauth/revoke/', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_key: TIKTOK.clientKey, client_secret: TIKTOK.clientSecret, token: m.access_token }).toString(),
+      });
+    } catch { /* ถึงยิง revoke ไม่ผ่านก็ล้าง token ฝั่งเราต่อ */ }
+    // ล้าง token ฝั่งเรา แต่คง open_id->influencer_id ไว้ (ล็อกอินใหม่จะผูกกับ creator เดิม)
+    await pool.query(`UPDATE \`${tbl('influencer_tiktok')}\` SET access_token='', refresh_token='', expires_at='', updated_at=? WHERE open_id=?`, [nowIso(), m.open_id]);
+  }
+  return { status: 200, json: { success: true } };
+}
+
 // ---------- snapshot (filtered) ----------
+// influencer ที่ผูก TikTok (มี token) -> ใช้โชว์ปุ่ม dashboard ฝั่ง admin
+async function tiktokLinkedSet_() {
+  try {
+    const [rows] = await pool.query(`SELECT influencer_id FROM \`${tbl('influencer_tiktok')}\` WHERE access_token <> ''`);
+    return new Set(rows.map((r) => String(r.influencer_id)));
+  } catch { return new Set(); }
+}
 async function buildSnapshot(ctx) {
   const pinsMap = (rows) => { const o = {}; rows.forEach((r) => { o[r.influencer_id] = { pin: String(r.pin || ''), created_at: r.created_at || '', updated_at: r.updated_at || '' }; }); return o; };
   const credMap = (rows) => { const o = {}; rows.forEach((r) => { o[r.department_id] = { username: String(r.username || ''), password: String(r.password || ''), created_at: r.created_at || '', updated_at: r.updated_at || '' }; }); return o; };
@@ -202,10 +432,11 @@ async function buildSnapshot(ctx) {
     return { ...empty, registrationCampaigns: camps.filter((c) => c.active !== false) };
   }
   if (ctx.role === 'admin' && ctx.adminRole === 'super_admin') {
-    const [influencers, projects, posts, departments, pins, creds, camps, subs] = await Promise.all([
+    const [influencers, projects, posts, departments, pins, creds, camps, subs, ttSet] = await Promise.all([
       getAll('influencers'), getAll('projects'), getAll('posts'), getAll('departments'),
-      getAll('influencer_pins'), getAll('department_credentials'), getAll('registration_campaigns'), getAll('registration_submissions')
+      getAll('influencer_pins'), getAll('department_credentials'), getAll('registration_campaigns'), getAll('registration_submissions'), tiktokLinkedSet_()
     ]);
+    influencers.forEach((i) => { i.tiktok_linked = ttSet.has(String(i.id)); });
     return { influencers, projects, posts, departments, influencerPINs: pinsMap(pins), departmentCredentials: credMap(creds), registrationCampaigns: camps, registrationSubmissions: subs };
   }
   if (ctx.role === 'admin' && ctx.adminRole === 'department_admin' && ctx.deptId) {
@@ -218,6 +449,8 @@ async function buildSnapshot(ctx) {
     const infIds = new Set(infs.map((i) => String(i.id)));
     const allPins = await getAll('influencer_pins');
     const cred = await getById('department_credentials', ctx.deptId);
+    const ttSet = await tiktokLinkedSet_();
+    infs.forEach((i) => { i.tiktok_linked = ttSet.has(String(i.id)); });
     return {
       influencers: infs, projects, posts, departments: dept ? [dept] : [],
       influencerPINs: pinsMap(allPins.filter((r) => infIds.has(String(r.influencer_id)))),
@@ -449,6 +682,11 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url === '/api/health') return sendJson(res, 200, { ok: true, db: ENV.DB_NAME, prefix: PREFIX });
     if (url === '/api/login' && req.method === 'POST') { const r = await handleLogin(await readBody(req)); return sendJson(res, r.status, r.json); }
+    if (url === '/api/tiktok/config') return sendJson(res, 200, { success: true, configured: tiktokConfigured(), client_key: TIKTOK.clientKey, redirect_uri: TIKTOK.redirectUri, scope: TIKTOK.scopes });
+    if (url === '/api/tiktok/exchange' && req.method === 'POST') { const r = await handleTikTokExchange(await readBody(req)); return sendJson(res, r.status, r.json); }
+    if (url === '/api/tiktok/me') { const q = new URL(req.url, 'http://x').searchParams; const r = await handleTikTokMe(ctxOf(req), q.get('influencer_id')); return sendJson(res, r.status, r.json); }
+    if (url === '/api/tiktok/videos') { const q = new URL(req.url, 'http://x').searchParams; const r = await handleTikTokVideos(ctxOf(req), q.get('influencer_id')); return sendJson(res, r.status, r.json); }
+    if (url === '/api/tiktok/revoke' && req.method === 'POST') { const r = await handleTikTokRevoke(ctxOf(req)); return sendJson(res, r.status, r.json); }
     if (url === '/api/snapshot') { const ctx = ctxOf(req); const data = await buildSnapshot(ctx); return sendJson(res, 200, { success: true, data }); }
     if (url === '/api/action' && req.method === 'POST') {
       const ctx = ctxOf(req);
